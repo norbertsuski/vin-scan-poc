@@ -103,16 +103,16 @@ export const extractVinFromText = (text: string): string | null => {
   }
 
   return candidates.sort((left, right) => {
-    const tokenDifference = Number(right.isStandaloneToken) - Number(left.isStandaloneToken);
-
-    if (tokenDifference !== 0) {
-      return tokenDifference;
-    }
-
     const checkDigitDifference = Number(hasValidCheckDigit(right.value)) - Number(hasValidCheckDigit(left.value));
 
     if (checkDigitDifference !== 0) {
       return checkDigitDifference;
+    }
+
+    const tokenDifference = Number(right.isStandaloneToken) - Number(left.isStandaloneToken);
+
+    if (tokenDifference !== 0) {
+      return tokenDifference;
     }
 
     return digitCount(right.value) - digitCount(left.value);

@@ -14,10 +14,15 @@ export type VinRecognitionResult =
 
 export const recognizeVinFromImage = async (file: File): Promise<VinRecognitionResult> => {
   const croppedImage = await cropImageForOcr(file);
-  const { createWorker } = await import('tesseract.js');
+  const { createWorker, PSM } = await import('tesseract.js');
   const worker = await createWorker('eng');
 
   try {
+    await worker.setParameters({
+      tessedit_pageseg_mode: PSM.SINGLE_LINE,
+      tessedit_char_whitelist: 'ABCDEFGHJKLMNPRSTUVWXYZ0123456789'
+    });
+
     const result = await worker.recognize(croppedImage);
     const rawText = result.data.text;
     const vin = extractVinFromText(rawText);
