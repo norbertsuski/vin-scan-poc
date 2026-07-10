@@ -227,7 +227,7 @@ h2 {
   border: 1px solid #d8dfd8;
   border-radius: 8px;
   background: #111a16;
-  aspect-ratio: 3 / 4;
+  aspect-ratio: 3 / 2;
 }
 
 .camera-frame video {
