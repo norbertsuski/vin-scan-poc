@@ -7,7 +7,7 @@ describe('VIN_CROP_REGION', () => {
       xRatio: 0.05,
       yRatio: 0.35,
       widthRatio: 0.9,
-      heightRatio: 0.2
+      heightRatio: 0.1
     });
   });
 });

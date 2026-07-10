@@ -7,8 +7,8 @@ const digitCount = (candidate: string) => candidate.replace(/\D/g, '').length;
 
 const isValidVinCandidate = (candidate: string) => VIN_PATTERN.test(candidate);
 
-const collectCompactWindows = (text: string) => {
-  const compactText = normalizeVinCandidate(text);
+const collectLineWindows = (line: string) => {
+  const compactText = normalizeVinCandidate(line);
   const candidates: string[] = [];
 
   for (let index = 0; index <= compactText.length - VIN_WINDOW_LENGTH; index += 1) {
@@ -21,7 +21,10 @@ const collectCompactWindows = (text: string) => {
 export const isValidVin = (vin: string) => isValidVinCandidate(vin.trim().toUpperCase());
 
 export const extractVinFromText = (text: string): string | null => {
-  const candidates = collectCompactWindows(text).filter(isValidVinCandidate);
+  const candidates = text
+    .split(/\r?\n/)
+    .flatMap(collectLineWindows)
+    .filter(isValidVinCandidate);
 
   if (!candidates.length) {
     return null;

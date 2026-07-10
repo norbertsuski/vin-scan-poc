@@ -9,7 +9,7 @@ export const VIN_CROP_REGION: CropRegion = {
   xRatio: 0.05,
   yRatio: 0.35,
   widthRatio: 0.9,
-  heightRatio: 0.2
+  heightRatio: 0.1
 };
 
 const loadImage = (file: File): Promise<HTMLImageElement> =>
