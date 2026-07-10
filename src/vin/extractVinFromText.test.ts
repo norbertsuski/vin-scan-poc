@@ -34,6 +34,10 @@ describe('extractVinFromText', () => {
     expect(extractVinFromText(ocrText)).toBe('WBA71AV030FM69796');
   });
 
+  it('prefers a standalone VIN token over a window that includes the E field label', () => {
+    expect(extractVinFromText('E WBA71AV030FM69796')).toBe('WBA71AV030FM69796');
+  });
+
   it('returns null when no valid VIN exists', () => {
     expect(extractVinFromText('registration number ABC123')).toBeNull();
   });

@@ -27,6 +27,11 @@ const VIN_TRANSLITERATION: Record<string, number> = {
 };
 const VIN_CHECK_WEIGHTS = [8, 7, 6, 5, 4, 3, 2, 10, 0, 9, 8, 7, 6, 5, 4, 3, 2];
 
+type VinCandidate = {
+  value: string;
+  isStandaloneToken: boolean;
+};
+
 const normalizeVinCandidate = (text: string) => text.toUpperCase().replace(/[^A-Z0-9]/g, '');
 
 const digitCount = (candidate: string) => candidate.replace(/\D/g, '').length;
@@ -55,36 +60,61 @@ const hasValidCheckDigit = (candidate: string) => {
   return candidate[8] === expectedCheckDigit;
 };
 
-const collectLineWindows = (line: string) => {
+const collectStandaloneTokens = (line: string): VinCandidate[] =>
+  line
+    .toUpperCase()
+    .split(/[^A-Z0-9]+/)
+    .filter(Boolean)
+    .filter(isValidVinCandidate)
+    .map(value => ({
+      value,
+      isStandaloneToken: true
+    }));
+
+const collectLineWindows = (line: string): VinCandidate[] => {
   const compactText = normalizeVinCandidate(line);
-  const candidates: string[] = [];
+  const candidates: VinCandidate[] = [];
 
   for (let index = 0; index <= compactText.length - VIN_WINDOW_LENGTH; index += 1) {
-    candidates.push(compactText.slice(index, index + VIN_WINDOW_LENGTH));
+    candidates.push({
+      value: compactText.slice(index, index + VIN_WINDOW_LENGTH),
+      isStandaloneToken: false
+    });
   }
 
   return candidates;
 };
+
+const collectLineCandidates = (line: string): VinCandidate[] => [
+  ...collectStandaloneTokens(line),
+  ...collectLineWindows(line)
+];
 
 export const isValidVin = (vin: string) => isValidVinCandidate(vin.trim().toUpperCase());
 
 export const extractVinFromText = (text: string): string | null => {
   const candidates = text
     .split(/\r?\n/)
-    .flatMap(collectLineWindows)
-    .filter(isValidVinCandidate);
+    .flatMap(collectLineCandidates)
+    .filter(candidate => isValidVinCandidate(candidate.value));
 
   if (!candidates.length) {
     return null;
   }
 
   return candidates.sort((left, right) => {
-    const checkDigitDifference = Number(hasValidCheckDigit(right)) - Number(hasValidCheckDigit(left));
+    const tokenDifference = Number(right.isStandaloneToken) - Number(left.isStandaloneToken);
+
+    if (tokenDifference !== 0) {
+      return tokenDifference;
+    }
+
+    const checkDigitDifference = Number(hasValidCheckDigit(right.value)) - Number(hasValidCheckDigit(left.value));
 
     if (checkDigitDifference !== 0) {
       return checkDigitDifference;
     }
 
-    return digitCount(right) - digitCount(left);
-  })[0];
+    return digitCount(right.value) - digitCount(left.value);
+  })[0].value;
 };
