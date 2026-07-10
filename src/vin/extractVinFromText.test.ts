@@ -6,7 +6,7 @@ describe('extractVinFromText', () => {
     expect(extractVinFromText('VIN: 1HGCM82633A123456')).toBe('1HGCM82633A123456');
   });
 
-  it('extracts a VIN split by spaces on one OCR line', () => {
+  it('extracts a VIN split by spaces and newlines', () => {
     expect(extractVinFromText('1 H G C M 8 2 6 3 3 A 1 2 3 4 5 6')).toBe('1HGCM82633A123456');
   });
 
@@ -14,8 +14,8 @@ describe('extractVinFromText', () => {
     expect(extractVinFromText('document id 1234\nVIN: 1HGCM82633A123456\nplate ABC123')).toBe('1HGCM82633A123456');
   });
 
-  it('does not merge partial candidates from different OCR lines', () => {
-    expect(extractVinFromText('1HGCM826\n33A123456')).toBeNull();
+  it('can recover a VIN split across OCR lines', () => {
+    expect(extractVinFromText('1HGCM826\n33A123456')).toBe('1HGCM82633A123456');
   });
 
   it('returns null when no valid VIN exists', () => {
