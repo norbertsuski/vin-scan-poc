@@ -138,9 +138,18 @@ export const App = () => {
       return;
     }
 
+    const frameAspectRatio = video.clientWidth && video.clientHeight ? video.clientWidth / video.clientHeight : 3 / 2;
+    const videoAspectRatio = video.videoWidth / video.videoHeight;
+    const sourceWidth =
+      videoAspectRatio > frameAspectRatio ? Math.round(video.videoHeight * frameAspectRatio) : video.videoWidth;
+    const sourceHeight =
+      videoAspectRatio > frameAspectRatio ? video.videoHeight : Math.round(video.videoWidth / frameAspectRatio);
+    const sourceX = Math.round((video.videoWidth - sourceWidth) / 2);
+    const sourceY = Math.round((video.videoHeight - sourceHeight) / 2);
+
     const canvas = document.createElement('canvas');
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
+    canvas.width = sourceWidth;
+    canvas.height = sourceHeight;
 
     const context = canvas.getContext('2d');
 
@@ -149,7 +158,7 @@ export const App = () => {
       return;
     }
 
-    context.drawImage(video, 0, 0, canvas.width, canvas.height);
+    context.drawImage(video, sourceX, sourceY, sourceWidth, sourceHeight, 0, 0, canvas.width, canvas.height);
 
     const blob = await new Promise<Blob | null>(resolve => {
       canvas.toBlob(resolve, 'image/jpeg', 0.92);
