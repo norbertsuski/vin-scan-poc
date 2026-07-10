@@ -12,12 +12,13 @@ export type VinRecognitionResult =
       rawText: string;
     };
 
-export const recognizeVinFromPreparedImage = async (image: Blob): Promise<VinRecognitionResult> => {
+export const recognizeVinFromImage = async (file: File): Promise<VinRecognitionResult> => {
+  const croppedImage = await cropImageForOcr(file);
   const { createWorker } = await import('tesseract.js');
   const worker = await createWorker('eng');
 
   try {
-    const result = await worker.recognize(image);
+    const result = await worker.recognize(croppedImage);
     const rawText = result.data.text;
     const vin = extractVinFromText(rawText);
 
@@ -36,10 +37,4 @@ export const recognizeVinFromPreparedImage = async (image: Blob): Promise<VinRec
   } finally {
     await worker.terminate();
   }
-};
-
-export const recognizeVinFromImage = async (file: File): Promise<VinRecognitionResult> => {
-  const croppedImage = await cropImageForOcr(file);
-
-  return recognizeVinFromPreparedImage(croppedImage);
 };

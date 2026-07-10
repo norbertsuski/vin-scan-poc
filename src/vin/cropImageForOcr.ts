@@ -83,28 +83,3 @@ export const cropImageForOcr = async (
 
   return canvasToPngBlob(canvas);
 };
-
-export const cropVideoFrameForOcr = (
-  video: HTMLVideoElement,
-  cropRegion: CropRegion = VIN_CROP_REGION
-): Promise<Blob> => {
-  const sourceX = Math.round(video.videoWidth * cropRegion.xRatio);
-  const sourceY = Math.round(video.videoHeight * cropRegion.yRatio);
-  const sourceWidth = Math.round(video.videoWidth * cropRegion.widthRatio);
-  const sourceHeight = Math.round(video.videoHeight * cropRegion.heightRatio);
-
-  const canvas = document.createElement('canvas');
-  canvas.width = sourceWidth;
-  canvas.height = sourceHeight;
-
-  const context = canvas.getContext('2d');
-
-  if (!context) {
-    throw new Error('Canvas is not available in this browser');
-  }
-
-  context.drawImage(video, sourceX, sourceY, sourceWidth, sourceHeight, 0, 0, sourceWidth, sourceHeight);
-  applyGrayscaleContrast(context, sourceWidth, sourceHeight);
-
-  return canvasToPngBlob(canvas);
-};
