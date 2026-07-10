@@ -1,4 +1,4 @@
-import { ChangeEvent, useEffect, useRef, useState } from 'react';
+import { ChangeEvent, RefObject, useEffect, useRef, useState } from 'react';
 import { VIN_CROP_REGION } from './vin/cropImageForOcr';
 import { isValidVin } from './vin/extractVinFromText';
 import { recognizeVinFromImage } from './vin/recognizeVinFromImage';
@@ -32,10 +32,15 @@ const normalizeVinInput = (value: string) =>
 
 export const App = () => {
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const cameraStreamRef = useRef<MediaStream | null>(null);
   const [fields, setFields] = useState<VehicleFields>(initialVehicleFields);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [ocrState, setOcrState] = useState<OcrState>({ status: 'idle' });
+  const [isCameraOpen, setIsCameraOpen] = useState(false);
+  const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
+  const [cameraError, setCameraError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!selectedFile) {
@@ -51,6 +56,27 @@ export const App = () => {
     };
   }, [selectedFile]);
 
+  useEffect(() => {
+    if (!cameraStream || !videoRef.current) {
+      return undefined;
+    }
+
+    const video = videoRef.current;
+    video.srcObject = cameraStream;
+    void video.play();
+
+    return () => {
+      video.srcObject = null;
+    };
+  }, [cameraStream]);
+
+  useEffect(
+    () => () => {
+      cameraStreamRef.current?.getTracks().forEach(track => track.stop());
+    },
+    []
+  );
+
   const updateField = (field: keyof VehicleFields, value: string) => {
     setFields(current => ({
       ...current,
@@ -60,6 +86,85 @@ export const App = () => {
 
   const openImagePicker = () => {
     fileInputRef.current?.click();
+  };
+
+  const closeLiveCamera = () => {
+    cameraStreamRef.current?.getTracks().forEach(track => track.stop());
+    cameraStreamRef.current = null;
+    setCameraStream(null);
+    setIsCameraOpen(false);
+  };
+
+  const openLiveCamera = async () => {
+    setCameraError(null);
+
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setCameraError('Live camera preview is not available in this browser. Use photo upload instead.');
+      openImagePicker();
+      return;
+    }
+
+    setIsCameraOpen(true);
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: false,
+        video: {
+          facingMode: { ideal: 'environment' },
+          width: { ideal: 1920 },
+          height: { ideal: 1080 }
+        }
+      });
+
+      cameraStreamRef.current = stream;
+      setCameraStream(stream);
+    } catch {
+      closeLiveCamera();
+      setCameraError('Camera access was blocked or unavailable. Use photo upload instead.');
+      openImagePicker();
+    }
+  };
+
+  const captureCameraPhoto = async () => {
+    const video = videoRef.current;
+
+    if (!video || video.videoWidth === 0 || video.videoHeight === 0) {
+      setCameraError('Camera is still starting. Try again in a moment.');
+      return;
+    }
+
+    const canvas = document.createElement('canvas');
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+
+    const context = canvas.getContext('2d');
+
+    if (!context) {
+      setCameraError('This browser could not capture the camera frame.');
+      return;
+    }
+
+    context.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+    const blob = await new Promise<Blob | null>(resolve => {
+      canvas.toBlob(resolve, 'image/jpeg', 0.92);
+    });
+
+    if (!blob) {
+      setCameraError('This browser could not prepare the captured photo.');
+      return;
+    }
+
+    const file = new File([blob], `vin-camera-${Date.now()}.jpg`, { type: 'image/jpeg' });
+
+    closeLiveCamera();
+    setSelectedFile(file);
+    setOcrState({ status: 'idle' });
+  };
+
+  const choosePhotoFromCamera = () => {
+    closeLiveCamera();
+    openImagePicker();
   };
 
   const handleImageSelected = (event: ChangeEvent<HTMLInputElement>) => {
@@ -145,9 +250,15 @@ export const App = () => {
             {vinStatus === 'partial' ? `${fields.vin.length}/17 characters entered.` : null}
           </div>
 
-          <button className="primary-action" type="button" onClick={openImagePicker}>
+          <button className="primary-action" type="button" onClick={openLiveCamera}>
             Scan VIN
           </button>
+
+          <button className="secondary-action" type="button" onClick={openImagePicker}>
+            Choose photo
+          </button>
+
+          {cameraError ? <p className="error-message">{cameraError}</p> : null}
 
           <input
             ref={fileInputRef}
@@ -185,9 +296,77 @@ export const App = () => {
           onUseVin={useDetectedVin}
         />
       ) : null}
+
+      {isCameraOpen ? (
+        <LiveCameraPanel
+          videoRef={videoRef}
+          isReady={Boolean(cameraStream)}
+          cameraError={cameraError}
+          onCapture={captureCameraPhoto}
+          onCancel={closeLiveCamera}
+          onChoosePhoto={choosePhotoFromCamera}
+        />
+      ) : null}
     </main>
   );
 };
+
+type LiveCameraPanelProps = {
+  videoRef: RefObject<HTMLVideoElement | null>;
+  isReady: boolean;
+  cameraError: string | null;
+  onCapture: () => void;
+  onCancel: () => void;
+  onChoosePhoto: () => void;
+};
+
+const LiveCameraPanel = ({
+  videoRef,
+  isReady,
+  cameraError,
+  onCapture,
+  onCancel,
+  onChoosePhoto
+}: LiveCameraPanelProps) => (
+  <div className="review-backdrop" role="presentation">
+    <section className="review-panel camera-panel" role="dialog" aria-modal="true" aria-labelledby="camera-title">
+      <div className="review-header">
+        <div>
+          <h2 id="camera-title">Align VIN</h2>
+          <p>Hold the phone steady and place the VIN text inside the highlighted band.</p>
+        </div>
+        <button className="icon-button" type="button" onClick={onCancel} aria-label="Close camera">
+          x
+        </button>
+      </div>
+
+      <div className="camera-frame">
+        <video ref={videoRef} autoPlay muted playsInline aria-label="Live camera preview" />
+        <div
+          className="crop-guide"
+          style={{
+            left: `${VIN_CROP_REGION.xRatio * 100}%`,
+            top: `${VIN_CROP_REGION.yRatio * 100}%`,
+            width: `${VIN_CROP_REGION.widthRatio * 100}%`,
+            height: `${VIN_CROP_REGION.heightRatio * 100}%`
+          }}
+        />
+        {!isReady ? <div className="camera-loading">Starting camera...</div> : null}
+      </div>
+
+      {cameraError ? <p className="error-message">{cameraError}</p> : null}
+
+      <div className="review-actions">
+        <button className="primary-action" type="button" onClick={onCapture} disabled={!isReady}>
+          Capture photo
+        </button>
+        <button className="secondary-action" type="button" onClick={onChoosePhoto}>
+          Choose photo
+        </button>
+      </div>
+    </section>
+  </div>
+);
 
 type ReviewPanelProps = {
   previewUrl: string;
