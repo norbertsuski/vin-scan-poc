@@ -6,9 +6,9 @@ export type CropRegion = {
 };
 
 export const VIN_CROP_REGION: CropRegion = {
-  xRatio: 0.05,
+  xRatio: 0.2,
   yRatio: 0.35,
-  widthRatio: 0.9,
+  widthRatio: 0.75,
   heightRatio: 0.15
 };
 
