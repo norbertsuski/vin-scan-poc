@@ -1,7 +1,7 @@
 import { ChangeEvent, RefObject, useEffect, useRef, useState } from 'react';
-import { VIN_CROP_REGION } from './vin/cropImageForOcr';
+import { cropVideoFrameForOcr, VIN_CROP_REGION } from './vin/cropImageForOcr';
 import { isValidVin } from './vin/extractVinFromText';
-import { recognizeVinFromImage } from './vin/recognizeVinFromImage';
+import { recognizeVinFromImage, recognizeVinFromPreparedImage } from './vin/recognizeVinFromImage';
 
 type OcrState =
   | { status: 'idle' }
@@ -24,6 +24,9 @@ const initialVehicleFields: VehicleFields = {
   year: ''
 };
 
+const LIVE_SCAN_INTERVAL_MS = 1800;
+const LIVE_SCAN_START_DELAY_MS = 700;
+
 const normalizeVinInput = (value: string) =>
   value
     .toUpperCase()
@@ -34,6 +37,7 @@ export const App = () => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const cameraStreamRef = useRef<MediaStream | null>(null);
+  const liveScanTimeoutRef = useRef<number | null>(null);
   const [fields, setFields] = useState<VehicleFields>(initialVehicleFields);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
@@ -41,6 +45,7 @@ export const App = () => {
   const [isCameraOpen, setIsCameraOpen] = useState(false);
   const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
   const [cameraError, setCameraError] = useState<string | null>(null);
+  const [cameraOcrState, setCameraOcrState] = useState<OcrState>({ status: 'idle' });
 
   useEffect(() => {
     if (!selectedFile) {
@@ -73,9 +78,77 @@ export const App = () => {
   useEffect(
     () => () => {
       cameraStreamRef.current?.getTracks().forEach(track => track.stop());
+      if (liveScanTimeoutRef.current) {
+        window.clearTimeout(liveScanTimeoutRef.current);
+      }
     },
     []
   );
+
+  useEffect(() => {
+    if (!isCameraOpen || !cameraStream || cameraOcrState.status === 'found') {
+      return undefined;
+    }
+
+    let isCancelled = false;
+
+    const scheduleScan = (delayMs: number) => {
+      liveScanTimeoutRef.current = window.setTimeout(scanVisibleVinBand, delayMs);
+    };
+
+    const scanVisibleVinBand = async () => {
+      if (isCancelled) {
+        return;
+      }
+
+      const video = videoRef.current;
+
+      if (!video || video.videoWidth === 0 || video.videoHeight === 0) {
+        scheduleScan(LIVE_SCAN_INTERVAL_MS);
+        return;
+      }
+
+      setCameraOcrState({ status: 'scanning' });
+
+      try {
+        const croppedFrame = await cropVideoFrameForOcr(video);
+        const result = await recognizeVinFromPreparedImage(croppedFrame);
+
+        if (isCancelled) {
+          return;
+        }
+
+        if (result.status === 'found') {
+          setCameraOcrState({ status: 'found', vin: result.vin, rawText: result.rawText });
+          return;
+        }
+
+        setCameraOcrState({ status: 'not_found', rawText: result.rawText });
+        scheduleScan(LIVE_SCAN_INTERVAL_MS);
+      } catch (error) {
+        if (isCancelled) {
+          return;
+        }
+
+        setCameraOcrState({
+          status: 'failed',
+          message: error instanceof Error ? error.message : 'Live OCR could not scan this frame.'
+        });
+        scheduleScan(LIVE_SCAN_INTERVAL_MS);
+      }
+    };
+
+    scheduleScan(LIVE_SCAN_START_DELAY_MS);
+
+    return () => {
+      isCancelled = true;
+
+      if (liveScanTimeoutRef.current) {
+        window.clearTimeout(liveScanTimeoutRef.current);
+        liveScanTimeoutRef.current = null;
+      }
+    };
+  }, [isCameraOpen, cameraStream, cameraOcrState.status === 'found']);
 
   const updateField = (field: keyof VehicleFields, value: string) => {
     setFields(current => ({
@@ -89,10 +162,16 @@ export const App = () => {
   };
 
   const closeLiveCamera = () => {
+    if (liveScanTimeoutRef.current) {
+      window.clearTimeout(liveScanTimeoutRef.current);
+      liveScanTimeoutRef.current = null;
+    }
+
     cameraStreamRef.current?.getTracks().forEach(track => track.stop());
     cameraStreamRef.current = null;
     setCameraStream(null);
     setIsCameraOpen(false);
+    setCameraOcrState({ status: 'idle' });
   };
 
   const openLiveCamera = async () => {
@@ -105,6 +184,7 @@ export const App = () => {
     }
 
     setIsCameraOpen(true);
+    setCameraOcrState({ status: 'idle' });
 
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
@@ -125,46 +205,21 @@ export const App = () => {
     }
   };
 
-  const captureCameraPhoto = async () => {
-    const video = videoRef.current;
-
-    if (!video || video.videoWidth === 0 || video.videoHeight === 0) {
-      setCameraError('Camera is still starting. Try again in a moment.');
-      return;
-    }
-
-    const canvas = document.createElement('canvas');
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
-
-    const context = canvas.getContext('2d');
-
-    if (!context) {
-      setCameraError('This browser could not capture the camera frame.');
-      return;
-    }
-
-    context.drawImage(video, 0, 0, canvas.width, canvas.height);
-
-    const blob = await new Promise<Blob | null>(resolve => {
-      canvas.toBlob(resolve, 'image/jpeg', 0.92);
-    });
-
-    if (!blob) {
-      setCameraError('This browser could not prepare the captured photo.');
-      return;
-    }
-
-    const file = new File([blob], `vin-camera-${Date.now()}.jpg`, { type: 'image/jpeg' });
-
-    closeLiveCamera();
-    setSelectedFile(file);
-    setOcrState({ status: 'idle' });
-  };
-
   const choosePhotoFromCamera = () => {
     closeLiveCamera();
     openImagePicker();
+  };
+
+  const useLiveDetectedVin = (vin: string) => {
+    setFields(current => ({
+      ...current,
+      vin
+    }));
+    closeLiveCamera();
+  };
+
+  const keepLiveScanning = () => {
+    setCameraOcrState({ status: 'idle' });
   };
 
   const handleImageSelected = (event: ChangeEvent<HTMLInputElement>) => {
@@ -301,10 +356,12 @@ export const App = () => {
         <LiveCameraPanel
           videoRef={videoRef}
           isReady={Boolean(cameraStream)}
+          ocrState={cameraOcrState}
           cameraError={cameraError}
-          onCapture={captureCameraPhoto}
           onCancel={closeLiveCamera}
           onChoosePhoto={choosePhotoFromCamera}
+          onUseVin={useLiveDetectedVin}
+          onKeepScanning={keepLiveScanning}
         />
       ) : null}
     </main>
@@ -314,19 +371,23 @@ export const App = () => {
 type LiveCameraPanelProps = {
   videoRef: RefObject<HTMLVideoElement | null>;
   isReady: boolean;
+  ocrState: OcrState;
   cameraError: string | null;
-  onCapture: () => void;
   onCancel: () => void;
   onChoosePhoto: () => void;
+  onUseVin: (vin: string) => void;
+  onKeepScanning: () => void;
 };
 
 const LiveCameraPanel = ({
   videoRef,
   isReady,
+  ocrState,
   cameraError,
-  onCapture,
   onCancel,
-  onChoosePhoto
+  onChoosePhoto,
+  onUseVin,
+  onKeepScanning
 }: LiveCameraPanelProps) => (
   <div className="review-backdrop" role="presentation">
     <section className="review-panel camera-panel" role="dialog" aria-modal="true" aria-labelledby="camera-title">
@@ -354,19 +415,52 @@ const LiveCameraPanel = ({
         {!isReady ? <div className="camera-loading">Starting camera...</div> : null}
       </div>
 
+      <LiveCameraFeedback ocrState={ocrState} />
+
       {cameraError ? <p className="error-message">{cameraError}</p> : null}
 
       <div className="review-actions">
-        <button className="primary-action" type="button" onClick={onCapture} disabled={!isReady}>
-          Capture photo
-        </button>
+        {ocrState.status === 'found' ? (
+          <>
+            <button className="primary-action" type="button" onClick={() => onUseVin(ocrState.vin)}>
+              Use this VIN
+            </button>
+            <button className="secondary-action" type="button" onClick={onKeepScanning}>
+              Keep scanning
+            </button>
+          </>
+        ) : null}
         <button className="secondary-action" type="button" onClick={onChoosePhoto}>
           Choose photo
+        </button>
+        <button className="secondary-action" type="button" onClick={onCancel}>
+          Cancel
         </button>
       </div>
     </section>
   </div>
 );
+
+const LiveCameraFeedback = ({ ocrState }: { ocrState: OcrState }) => {
+  if (ocrState.status === 'found') {
+    return (
+      <div className="result-box">
+        <span>Detected VIN</span>
+        <strong>{ocrState.vin}</strong>
+      </div>
+    );
+  }
+
+  if (ocrState.status === 'failed') {
+    return <p className="error-message">{ocrState.message}</p>;
+  }
+
+  if (ocrState.status === 'not_found') {
+    return <p className="status-message">Still scanning the highlighted band...</p>;
+  }
+
+  return <p className="status-message">Scanning the highlighted band automatically...</p>;
+};
 
 type ReviewPanelProps = {
   previewUrl: string;

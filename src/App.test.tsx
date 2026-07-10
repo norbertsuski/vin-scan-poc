@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { App } from './App';
 
@@ -42,9 +42,12 @@ describe('App', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Scan VIN' }));
 
-    expect(await screen.findByRole('dialog', { name: 'Align VIN' })).toBeInTheDocument();
+    const cameraDialog = await screen.findByRole('dialog', { name: 'Align VIN' });
+
+    expect(cameraDialog).toBeInTheDocument();
     expect(screen.getByLabelText('Live camera preview')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Capture photo' })).toBeEnabled();
+    expect(screen.getByText('Scanning the highlighted band automatically...')).toBeInTheDocument();
+    expect(within(cameraDialog).getByRole('button', { name: 'Choose photo' })).toBeEnabled();
     expect(getUserMedia).toHaveBeenCalledWith({
       audio: false,
       video: {

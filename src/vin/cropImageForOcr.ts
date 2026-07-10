@@ -46,6 +46,18 @@ const applyGrayscaleContrast = (context: CanvasRenderingContext2D, width: number
   context.putImageData(imageData, 0, 0);
 };
 
+const canvasToPngBlob = (canvas: HTMLCanvasElement): Promise<Blob> =>
+  new Promise((resolve, reject) => {
+    canvas.toBlob(blob => {
+      if (!blob) {
+        reject(new Error('Could not prepare image for OCR'));
+        return;
+      }
+
+      resolve(blob);
+    }, 'image/png');
+  });
+
 export const cropImageForOcr = async (
   file: File,
   cropRegion: CropRegion = VIN_CROP_REGION
@@ -69,14 +81,30 @@ export const cropImageForOcr = async (
   context.drawImage(image, sourceX, sourceY, sourceWidth, sourceHeight, 0, 0, sourceWidth, sourceHeight);
   applyGrayscaleContrast(context, sourceWidth, sourceHeight);
 
-  return new Promise((resolve, reject) => {
-    canvas.toBlob(blob => {
-      if (!blob) {
-        reject(new Error('Could not prepare image for OCR'));
-        return;
-      }
+  return canvasToPngBlob(canvas);
+};
 
-      resolve(blob);
-    }, 'image/png');
-  });
+export const cropVideoFrameForOcr = (
+  video: HTMLVideoElement,
+  cropRegion: CropRegion = VIN_CROP_REGION
+): Promise<Blob> => {
+  const sourceX = Math.round(video.videoWidth * cropRegion.xRatio);
+  const sourceY = Math.round(video.videoHeight * cropRegion.yRatio);
+  const sourceWidth = Math.round(video.videoWidth * cropRegion.widthRatio);
+  const sourceHeight = Math.round(video.videoHeight * cropRegion.heightRatio);
+
+  const canvas = document.createElement('canvas');
+  canvas.width = sourceWidth;
+  canvas.height = sourceHeight;
+
+  const context = canvas.getContext('2d');
+
+  if (!context) {
+    throw new Error('Canvas is not available in this browser');
+  }
+
+  context.drawImage(video, sourceX, sourceY, sourceWidth, sourceHeight, 0, 0, sourceWidth, sourceHeight);
+  applyGrayscaleContrast(context, sourceWidth, sourceHeight);
+
+  return canvasToPngBlob(canvas);
 };
